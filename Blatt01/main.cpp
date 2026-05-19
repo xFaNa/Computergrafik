@@ -31,7 +31,7 @@ float zNear = 0.1f;
 float zFar  = 100.0f;
 
 // Globale RGB Farbwerte fuer das Viereck
-float r = 1.0f;
+float r = 0.0f;
 float g = 0.0f;
 float b = 0.0f;
 
@@ -440,7 +440,7 @@ int main(int argc, char** argv)
 
   // Eingabe der RGB Werte
   if (mode == 1) {
-      std::cout << "RGB-Werte einegeben (0.0 bis 1.0" << std::endl;
+      std::cout << "RGB-Werte einegeben (0.0 bis 1.0)" << std::endl;
 
       std::cout << "r: ";
       std::cin >> r;
