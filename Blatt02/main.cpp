@@ -64,7 +64,14 @@ public:
   glm::mat4x4 model; // model matrix
 };
 
+
 Object sphere;
+Object axes;
+
+Object normals;
+bool showNormals = false;
+float normalLength = 0.2f;
+GLsizei normalIndexCount = 0;
 
 
 void renderSphere()
@@ -86,6 +93,31 @@ glm::vec3 midpoint(glm::vec3 a, glm::vec3 b)
     return glm::normalize(mid);
 }
 
+void renderAxes()
+{
+glm::mat4x4 mvp = projection * view * sphere.model;
+
+    program.use();
+    program.setUniform("mvp", mvp);
+
+    glBindVertexArray(axes.vao);
+
+    glDrawElements(GL_LINES, 6, GL_UNSIGNED_SHORT, 0);
+
+    glBindVertexArray(0);
+}
+
+void renderNormals()
+{
+    glm::mat4x4 mvp = projection * view * sphere.model;
+
+    program.use();
+    program.setUniform("mvp", mvp);
+
+    glBindVertexArray(normals.vao);
+    glDrawElements(GL_LINES, normalIndexCount, GL_UNSIGNED_SHORT, 0);
+    glBindVertexArray(0);
+}
 
 void addTriangle(
     std::vector<glm::vec3>& vertices,
@@ -242,6 +274,79 @@ void initSphere()
     
 }
 
+void initAxes()
+{
+    const std::vector<glm::vec3> vertices =
+    {
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(sphereRadius * 1.5f, 0.0f, 0.0f),
+
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f,sphereRadius * 1.5f, 0.0f),
+
+        glm::vec3(0.0f, 0.0f, 0.0f),
+        glm::vec3(0.0f, 0.0f,sphereRadius * 1.5f)
+    };
+
+    const std::vector<glm::vec3> colors =
+    {
+        glm::vec3(1.0f, 0.0f, 0.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f),
+
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f),
+
+        glm::vec3(0.0f, 0.0f, 1.0f),
+        glm::vec3(0.0f, 0.0f, 1.0f)
+    };
+
+    const std::vector<GLushort> indices =
+    {
+        0,1,
+        2,3,
+        4,5
+    };
+
+    GLuint programId = program.getHandle();
+    GLuint pos;
+
+    glGenVertexArrays(1, &axes.vao);
+    glBindVertexArray(axes.vao);
+
+    glGenBuffers(1, &axes.positionBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, axes.positionBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+        vertices.size() * sizeof(glm::vec3),
+        vertices.data(),
+        GL_STATIC_DRAW);
+
+    pos = glGetAttribLocation(programId, "position");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &axes.colorBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, axes.colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+        colors.size() * sizeof(glm::vec3),
+        colors.data(),
+        GL_STATIC_DRAW);
+
+    pos = glGetAttribLocation(programId, "color");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &axes.indexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, axes.indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+        indices.size() * sizeof(GLushort),
+        indices.data(),
+        GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
+}
+
+
+
 void updateView()
 {
 	glm::vec3 eye(0.0f, 0.0f, cameraDistance);
@@ -251,6 +356,90 @@ void updateView()
     view = glm::lookAt(eye, center, up);
 }
 
+void initNormals()
+{
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> colors;
+    std::vector<GLushort> indices;
+
+    std::vector<glm::vec3> sphereVertices;
+    std::vector<GLushort> sphereIndices;
+
+    glm::vec3 top(0.0f, 1.0f, 0.0f);
+    glm::vec3 right(1.0f, 0.0f, 0.0f);
+    glm::vec3 front(0.0f, 0.0f, 1.0f);
+    glm::vec3 left(-1.0f, 0.0f, 0.0f);
+    glm::vec3 back(0.0f, 0.0f, -1.0f);
+    glm::vec3 bottom(0.0f, -1.0f, 0.0f);
+
+    generateTriangleGrid(sphereVertices, sphereIndices, top, front, right, subdivisionDepth);
+    generateTriangleGrid(sphereVertices, sphereIndices, top, left, front, subdivisionDepth);
+    generateTriangleGrid(sphereVertices, sphereIndices, top, back, left, subdivisionDepth);
+    generateTriangleGrid(sphereVertices, sphereIndices, top, right, back, subdivisionDepth);
+
+    generateTriangleGrid(sphereVertices, sphereIndices, bottom, right, front, subdivisionDepth);
+    generateTriangleGrid(sphereVertices, sphereIndices, bottom, front, left, subdivisionDepth);
+    generateTriangleGrid(sphereVertices, sphereIndices, bottom, left, back, subdivisionDepth);
+    generateTriangleGrid(sphereVertices, sphereIndices, bottom, back, right, subdivisionDepth);
+
+    for (glm::vec3 p : sphereVertices)
+    {
+        glm::vec3 normal = glm::normalize(p);
+
+        glm::vec3 start = p;
+        glm::vec3 end = p + normal * normalLength;
+
+        GLushort startIndex = static_cast<GLushort>(vertices.size());
+
+        vertices.push_back(start);
+        vertices.push_back(end);
+
+        colors.push_back(glm::vec3(1.0f, 0.0f, 1.0f));
+        colors.push_back(glm::vec3(1.0f, 0.0f, 1.0f));
+
+        indices.push_back(startIndex);
+        indices.push_back(startIndex + 1);
+    }
+
+    normalIndexCount = static_cast<GLsizei>(indices.size());
+
+    GLuint programId = program.getHandle();
+    GLuint pos;
+
+    glGenVertexArrays(1, &normals.vao);
+    glBindVertexArray(normals.vao);
+
+    glGenBuffers(1, &normals.positionBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, normals.positionBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+        vertices.size() * sizeof(glm::vec3),
+        vertices.data(),
+        GL_STATIC_DRAW);
+
+    pos = glGetAttribLocation(programId, "position");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &normals.colorBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, normals.colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+        colors.size() * sizeof(glm::vec3),
+        colors.data(),
+        GL_STATIC_DRAW);
+
+    pos = glGetAttribLocation(programId, "color");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &normals.indexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, normals.indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+        indices.size() * sizeof(GLushort),
+        indices.data(),
+        GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
+}
 
 /*
  Initialization. Should return true if everything is ok and false if something went wrong.
@@ -282,6 +471,8 @@ bool init()
 
   // Create all objects.
   initSphere();
+  initAxes();
+  initNormals();
   
   return true;
 }
@@ -291,9 +482,19 @@ bool init()
  */
 void render()
 {
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     renderSphere();
+
+    glDisable(GL_DEPTH_TEST);
+    renderAxes();
+
+    if (showNormals)
+    {
+        renderNormals();
+    }
+
+    glEnable(GL_DEPTH_TEST);
 }
 
 void glutDisplay ()
@@ -335,6 +536,7 @@ void glutKeyboard (unsigned char keycode, int x, int y)
               << subdivisionDepth << std::endl;
 
           initSphere();
+          initNormals();
       }
 
       break;
@@ -350,6 +552,8 @@ void glutKeyboard (unsigned char keycode, int x, int y)
               << subdivisionDepth << std::endl;
 
           initSphere();
+          initNormals();
+         
       }
 
       break;
@@ -388,6 +592,8 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       {
           sphereRadius -= 0.1f;
           initSphere();
+          initAxes();
+          initNormals();
       }
       break;
 
@@ -396,6 +602,8 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       {
           sphereRadius += 0.1f;
           initSphere();
+          initAxes();
+          initNormals();
       }
       break;
 
@@ -417,6 +625,10 @@ void glutKeyboard (unsigned char keycode, int x, int y)
           updateView();
       }
 
+      break;
+
+  case 'v':
+      showNormals = !showNormals;
       break;
   }
 
