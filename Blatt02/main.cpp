@@ -19,19 +19,23 @@ const int WINDOW_HEIGHT = 480;
 // GLUT window id/handle
 int glutID = 0;
 
+// Shaderprogramm Vertex- und Fragmentshader
 cg::GLSLProgram program;
 
+// View and projection matrix
 glm::mat4x4 view;
 glm::mat4x4 projection;
 
+// Camera parameters
 float zNear = 0.1f;
 float zFar  = 100.0f;
 
-float rotationStep = 5.0f;
-float sphereRadius = 1.0f;
-float cameraDistance = 4.0f;
+// Unsere globalen Variablen
+float rotationStep = 5.0f;          // 5 Grad Rotation pro Tastendruck
+float sphereRadius = 1.0f;          // Radius der Kugel
+float cameraDistance = 4.0f;        // Kamera distanz
 
-int subdivisionDepth = 4;
+int subdivisionDepth = 4;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
 GLsizei sphereIndexCount = 0;
 
 /*
@@ -64,16 +68,17 @@ public:
   glm::mat4x4 model; // model matrix
 };
 
-
+// Render Objekte
 Object sphere;
 Object axes;
-
 Object normals;
+
+// Normalen Visualiesierungseinstellungen
 bool showNormals = false;
 float normalLength = 0.2f;
 GLsizei normalIndexCount = 0;
 
-
+// Rendert die Kugel mithilfe der MVP-Matrix, des VAOs und des Indexbuffers
 void renderSphere()
 {
     glm::mat4x4 mvp = projection * view * sphere.model;
@@ -86,27 +91,20 @@ void renderSphere()
     glBindVertexArray(0);
 }
 
-glm::vec3 midpoint(glm::vec3 a, glm::vec3 b)
-{
-    glm::vec3 mid = (a + b) * 0.5f;
-
-    return glm::normalize(mid);
-}
-
+// Rendert das lokale Koordinatensystem der Kugel mithilfe von Linien
 void renderAxes()
 {
-glm::mat4x4 mvp = projection * view * sphere.model;
+    glm::mat4x4 mvp = projection * view * sphere.model;
 
     program.use();
     program.setUniform("mvp", mvp);
 
     glBindVertexArray(axes.vao);
-
     glDrawElements(GL_LINES, 6, GL_UNSIGNED_SHORT, 0);
-
     glBindVertexArray(0);
 }
 
+// Rendert die Normalen der Kugel als Linien im lokalen Koordinatensystem
 void renderNormals()
 {
     glm::mat4x4 mvp = projection * view * sphere.model;
@@ -119,6 +117,7 @@ void renderNormals()
     glBindVertexArray(0);
 }
 
+// Fügt ein Dreieck mit drei Vertices zur Vertex- und Indexliste hinzu
 void addTriangle(
     std::vector<glm::vec3>& vertices,
     std::vector<GLushort>& indices,
@@ -138,32 +137,8 @@ void addTriangle(
     indices.push_back(startIndex + 2);
 }
 
-void subdivideTriangle(
-    std::vector<glm::vec3>& vertices,
-    std::vector<GLushort>& indices,
-    glm::vec3 a,
-    glm::vec3 b,
-    glm::vec3 c,
-    int depth
-)
-{
-    if (depth == 0) 
-    {
-        addTriangle(vertices, indices, a, b, c);
-        return;
-    }
-
-
-    glm::vec3 ab = midpoint(a, b);
-    glm::vec3 bc = midpoint(b, c);
-    glm::vec3 ca = midpoint(c, a);
-
-    subdivideTriangle(vertices, indices, a, ab, ca, depth - 1);
-    subdivideTriangle(vertices, indices, ab, b, bc, depth - 1);
-    subdivideTriangle(vertices, indices, ca, bc, c, depth -1);
-    subdivideTriangle(vertices, indices, ab, bc, ca, depth -1);
-} 
-
+// Erzeugt ein Dreiecksgitter innerhalb eines Oktaederdreiecks
+// und projiziert alle erzeugten Punkte auf die Kugeloberfläche
 void generateTriangleGrid(
     std::vector<glm::vec3>& vertices,
     std::vector<GLushort>& indices,
@@ -207,6 +182,8 @@ void generateTriangleGrid(
     }
 }
 
+// Erzeugt die Kugelgeometrie aus einem unterteilten Oktaeder
+// und initialisiert die benötigten OpenGL-Buffer
 void initSphere()
 {
     std::vector<glm::vec3> vertices;
@@ -274,6 +251,8 @@ void initSphere()
     
 }
 
+// Initialisiert das lokale Koordinatensystem der Kugel
+// und erstellt die benötigten OpenGL-Buffer
 void initAxes()
 {
     const std::vector<glm::vec3> vertices =
@@ -345,8 +324,7 @@ void initAxes()
     glBindVertexArray(0);
 }
 
-
-
+// Erstellt die Kamerasicht mithilfe von Position, Blickrichtung und Up-Vektor
 void updateView()
 {
 	glm::vec3 eye(0.0f, 0.0f, cameraDistance);
@@ -356,6 +334,8 @@ void updateView()
     view = glm::lookAt(eye, center, up);
 }
 
+// Erzeugt Linien zur Visualisierung der Vertex-Normalen
+// und initialisiert dafür die benötigten OpenGL-Buffer
 void initNormals()
 {
     std::vector<glm::vec3> vertices;
@@ -525,7 +505,8 @@ void glutKeyboard (unsigned char keycode, int x, int y)
   case 27: // ESC
     glutDestroyWindow ( glutID );
     return;
-    
+  
+    // Änderung des Subdivison-Levels
   case '+':
 
       if (subdivisionDepth < 4)
@@ -538,10 +519,9 @@ void glutKeyboard (unsigned char keycode, int x, int y)
           initSphere();
           initNormals();
       }
-
       break;
-    break;
-  
+
+    // Änderung des Subdivison-Levels
   case '-':
 
       if (subdivisionDepth > 0)
@@ -553,12 +533,10 @@ void glutKeyboard (unsigned char keycode, int x, int y)
 
           initSphere();
           initNormals();
-         
       }
-
-      break;
-    
     break;
+
+    // Rotation der Kugel um die lokalen Achsen
   case 'x':
       sphere.model = sphere.model * glm::rotate(
           glm::mat4(1.f),
@@ -567,6 +545,7 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       );
     break;
 
+    // Rotation der Kugel um die lokalen Achsen
   case 'y':
       sphere.model = sphere.model * glm::rotate(
           glm::mat4(1.0f),
@@ -575,6 +554,7 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       );
     break;
 
+    // Rotation der Kugel um die lokalen Achsen
   case 'z':
       sphere.model = sphere.model * glm::rotate(
           glm::mat4(1.0f),
@@ -583,10 +563,12 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       );
     break;
 
+	// Zurücksetzen der Kugeltransformation
   case 'n':
       sphere.model = glm::mat4(1.0f);
     break;
 
+    // Skalierung der Kugel
   case 'r':
       if (sphereRadius > 0.3f)
       {
@@ -596,7 +578,8 @@ void glutKeyboard (unsigned char keycode, int x, int y)
           initNormals();
       }
       break;
-
+      
+      // Skalierung der Kugel
   case 'R':
       if (sphereRadius < 2.0f)
       {
@@ -607,6 +590,7 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       }
       break;
 
+      // Kamera-Zoom durch Veränderung der Kameradistanz
   case 'a':
 
       if (cameraDistance > 1.0f)
@@ -616,7 +600,8 @@ void glutKeyboard (unsigned char keycode, int x, int y)
       }
 
       break;
-
+      
+      // Kamera-Zoom durch Veränderung der Kameradistanz
   case 's':
 
       if (cameraDistance < 10.0f)
@@ -627,6 +612,7 @@ void glutKeyboard (unsigned char keycode, int x, int y)
 
       break;
 
+      // Normalen Anzeigen 
   case 'v':
       showNormals = !showNormals;
       break;
