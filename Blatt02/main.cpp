@@ -35,7 +35,7 @@ float rotationStep = 5.0f;          // 5 Grad Rotation pro Tastendruck
 float sphereRadius = 1.0f;          // Radius der Kugel
 float cameraDistance = 4.0f;        // Kamera distanz
 
-int subdivisionDepth = 4;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
+int subdivisionDepth = 0;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
 GLsizei sphereIndexCount = 0;
 
 /*
@@ -138,7 +138,13 @@ void addTriangle(
 }
 
 // Erzeugt ein Dreiecksgitter innerhalb eines Oktaederdreiecks
-// und projiziert alle erzeugten Punkte auf die Kugeloberfläche
+// und projiziert alle erzeugten Punkte auf die Kugeloberfläche.
+//
+// Parameter:
+// vertices: Vertexliste, in der die neuen Punkte gespeichert werden
+// indices:  Indexliste, welche die Dreiecke beschreibt
+// a, b, c:  Eckpunkte eines ursprünglichen Oktaederdreiecks
+// n:        Unterteilungsgrad der Dreiecksfläche
 void generateTriangleGrid(
     std::vector<glm::vec3>& vertices,
     std::vector<GLushort>& indices,
@@ -148,12 +154,26 @@ void generateTriangleGrid(
     int n
 )
 {
+    // Bei n = 0 soll das ursprüngliche Dreieck erhalten bleiben.
+    // Deshalb wird mit n + 1 gearbeitet.
+    // Beispiel:
+    // n = 0 -> steps = 1 -> 1 Dreieck pro Oktaederseite
+    // n = 4 -> steps = 5 -> 25 Dreiecke pro Oktaederseite
     int steps = n + 1;
 
+    // Das Dreieck wird zeilenweise durchlaufen.
+    // i beschreibt die aktuelle Zeile im Dreiecksraster.
     for (int i = 0; i < steps; i++)
     {
+        // Die Zeilen werden nach unten hin kürzer.
+        // Dadurch entsteht kein Rechteck-, sondern ein Dreiecksraster.
         for (int j = 0; j < steps - i; j++)
         {
+            // alpha und beta sind Gewichtungen für die Eckpunkte a und b.
+            // Der dritte Anteil für c ergibt sich aus:
+            // gamma = 1 - alpha - beta.
+            //
+            // Damit können Punkte innerhalb des Dreiecks berechnet werden.
             float alpha0 = static_cast<float>(i) / steps;
             float beta0 = static_cast<float>(j) / steps;
 
@@ -163,19 +183,54 @@ void generateTriangleGrid(
             float alpha2 = static_cast<float>(i) / steps;
             float beta2 = static_cast<float>(j + 1) / steps;
 
-            glm::vec3 p0 = glm::normalize(alpha0 * a + beta0 * b + (1.0f - alpha0 - beta0) * c) * sphereRadius;
-            glm::vec3 p1 = glm::normalize(alpha1 * a + beta1 * b + (1.0f - alpha1 - beta1) * c) * sphereRadius;
-            glm::vec3 p2 = glm::normalize(alpha2 * a + beta2 * b + (1.0f - alpha2 - beta2) * c) * sphereRadius;
+            // Berechnung von drei Punkten innerhalb des ursprünglichen Dreiecks.
+            // Durch die gewichtete Summe aus a, b und c entstehen Zwischenpunkte.
+            //
+            // glm::normalize(...) projiziert diese Punkte anschließend wieder
+            // auf die Kugeloberfläche, damit sie nicht im Inneren des Oktaeders liegen.
+            // Danach wird mit sphereRadius auf den aktuellen Radius skaliert.
+            glm::vec3 p0 =
+                glm::normalize(
+                    alpha0 * a +
+                    beta0 * b +
+                    (1.0f - alpha0 - beta0) * c
+                ) * sphereRadius;
 
+            glm::vec3 p1 =
+                glm::normalize(
+                    alpha1 * a +
+                    beta1 * b +
+                    (1.0f - alpha1 - beta1) * c
+                ) * sphereRadius;
+
+            glm::vec3 p2 =
+                glm::normalize(
+                    alpha2 * a +
+                    beta2 * b +
+                    (1.0f - alpha2 - beta2) * c
+                ) * sphereRadius;
+
+            // Aus den drei berechneten Punkten wird das erste kleine Dreieck erzeugt.
             addTriangle(vertices, indices, p0, p1, p2);
 
+            // In den meisten Rasterzellen entsteht zusätzlich ein zweites Dreieck.
+            // Am Rand des großen Dreiecks gibt es dieses zweite Dreieck nicht mehr,
+            // deshalb wird vorher geprüft, ob es noch innerhalb des Rasters liegt.
             if (j < steps - i - 1)
             {
                 float alpha3 = static_cast<float>(i + 1) / steps;
                 float beta3 = static_cast<float>(j + 1) / steps;
 
-                glm::vec3 p3 = glm::normalize(alpha3 * a + beta3 * b + (1.0f - alpha3 - beta3) * c) * sphereRadius;
+                // Vierter Punkt der aktuellen Rasterzelle.
+                // Auch dieser Punkt wird wieder auf die Kugeloberfläche projiziert.
+                glm::vec3 p3 =
+                    glm::normalize(
+                        alpha3 * a +
+                        beta3 * b +
+                        (1.0f - alpha3 - beta3) * c
+                    ) * sphereRadius;
 
+                // Zweites kleines Dreieck der aktuellen Rasterzelle.
                 addTriangle(vertices, indices, p1, p3, p2);
             }
         }
@@ -186,69 +241,158 @@ void generateTriangleGrid(
 // und initialisiert die benötigten OpenGL-Buffer
 void initSphere()
 {
+    // Speichert alle Vertexpositionen der Kugel
     std::vector<glm::vec3> vertices;
+
+    // Speichert die Reihenfolge der Vertices,
+    // aus denen später die Dreiecke erzeugt werden
     std::vector<GLushort> indices;
 
-    glm::vec3 top (0.0f, 1.0f, 0.0f);
-    glm::vec3 right (1.0f, 0.0f, 0.0f);
-    glm::vec3 front (0.0f, 0.0f, 1.0f);
+    // Eckpunkte des ursprünglichen Oktaeders
+    // Diese Punkte bilden die Basis der Kugel
+    glm::vec3 top(0.0f, 1.0f, 0.0f);
+    glm::vec3 right(1.0f, 0.0f, 0.0f);
+    glm::vec3 front(0.0f, 0.0f, 1.0f);
     glm::vec3 left(-1.0f, 0.0f, 0.0f);
     glm::vec3 back(0.0f, 0.0f, -1.0f);
     glm::vec3 bottom(0.0f, -1.0f, 0.0f);
 
-    // obere Hälfte
+    // Obere Hälfte des Oktaeders.
+    // Jede Fläche wird in kleine Dreiecke unterteilt
+    // und anschließend auf die Kugel projiziert.
     generateTriangleGrid(vertices, indices, top, front, right, subdivisionDepth);
     generateTriangleGrid(vertices, indices, top, left, front, subdivisionDepth);
     generateTriangleGrid(vertices, indices, top, back, left, subdivisionDepth);
     generateTriangleGrid(vertices, indices, top, right, back, subdivisionDepth);
 
-    // untere Hälfte
+    // Untere Hälfte des Oktaeders
     generateTriangleGrid(vertices, indices, bottom, right, front, subdivisionDepth);
     generateTriangleGrid(vertices, indices, bottom, front, left, subdivisionDepth);
     generateTriangleGrid(vertices, indices, bottom, left, back, subdivisionDepth);
     generateTriangleGrid(vertices, indices, bottom, back, right, subdivisionDepth);
 
+    // Speichert die Gesamtanzahl der Indices.
+    // Diese Anzahl wird später beim Rendering benötigt.
     sphereIndexCount = static_cast<GLsizei>(indices.size());
 
+    // Debug-Ausgabe der erzeugten Geometrie
     std::cout << "Vertices: " << vertices.size() << std::endl;
     std::cout << "Indices: " << indices.size() << std::endl;
 
+    // Erzeugt für jeden Vertex dieselbe Farbe.
+    // Die Kugel wird dadurch komplett gelb dargestellt.
     const std::vector<glm::vec3> colors(
         vertices.size(),
         glm::vec3(1.0f, 1.0f, 0.0f)
     );
 
+    // OpenGL-ID des aktuellen Shaderprogramms
     GLuint programId = program.getHandle();
+
+    // Variable zum Speichern der Attributpositionen
     GLuint pos;
 
-
+    // Erzeugt ein Vertex Array Object (VAO).
+    // Das VAO speichert die Zuordnung aller Buffer und Attribute.
     glGenVertexArrays(1, &sphere.vao);
+
+    // Aktiviert das VAO der Kugel
     glBindVertexArray(sphere.vao);
 
+    // -----------------------------
+    // Positionsbuffer erzeugen
+    // -----------------------------
+
+    // Erzeugt einen Vertexbuffer für die Positionen
     glGenBuffers(1, &sphere.positionBuffer);
+
+    // Aktiviert den Buffer als aktuellen Array-Buffer
     glBindBuffer(GL_ARRAY_BUFFER, sphere.positionBuffer);
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec3), vertices.data(), GL_STATIC_DRAW);
 
+    // Kopiert alle Vertexpositionen in den GPU-Speicher
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        vertices.size() * sizeof(glm::vec3),
+        vertices.data(),
+        GL_STATIC_DRAW
+    );
+
+    // Fragt die Position des "position"-Attributes im Shader ab
     pos = glGetAttribLocation(programId, "position");
-    glEnableVertexAttribArray(pos);
-    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
+    // Aktiviert das Vertexattribut
+    glEnableVertexAttribArray(pos);
+
+    // Beschreibt den Aufbau der Positionsdaten:
+    // 3 Floats pro Vertex (x,y,z)
+    glVertexAttribPointer(
+        pos,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        0,
+        0
+    );
+
+    // -----------------------------
+    // Farbbuffer erzeugen
+    // -----------------------------
+
+    // Erzeugt einen Buffer für die Farben
     glGenBuffers(1, &sphere.colorBuffer);
+
+    // Aktiviert den Farbbuffer
     glBindBuffer(GL_ARRAY_BUFFER, sphere.colorBuffer);
-    glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(glm::vec3), colors.data(), GL_STATIC_DRAW);
 
+    // Kopiert die Farbdaten in den GPU-Speicher
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        colors.size() * sizeof(glm::vec3),
+        colors.data(),
+        GL_STATIC_DRAW
+    );
+
+    // Fragt die Position des "color"-Attributes im Shader ab
     pos = glGetAttribLocation(programId, "color");
+
+    // Aktiviert das Farb-Attribut
     glEnableVertexAttribArray(pos);
-    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
+    // Beschreibt den Aufbau der Farbdaten:
+    // 3 Floats pro Farbe (r,g,b)
+    glVertexAttribPointer(
+        pos,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        0,
+        0
+    );
+
+    // -----------------------------
+    // Indexbuffer erzeugen
+    // -----------------------------
+
+    // Erzeugt einen Elementbuffer für die Indices
     glGenBuffers(1, &sphere.indexBuffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphere.indexBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(GLushort), indices.data(), GL_STATIC_DRAW);
 
+    // Aktiviert den Indexbuffer
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphere.indexBuffer);
+
+    // Kopiert die Indexdaten in den GPU-Speicher
+    glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        indices.size() * sizeof(GLushort),
+        indices.data(),
+        GL_STATIC_DRAW
+    );
+
+    // Deaktiviert das aktuelle VAO
     glBindVertexArray(0);
 
+    // Setzt die Model-Matrix auf die Einheitsmatrix.
+    // Die Kugel startet dadurch ohne Rotation oder Verschiebung.
     sphere.model = glm::mat4(1.0f);
-    
 }
 
 // Initialisiert das lokale Koordinatensystem der Kugel
@@ -566,6 +710,13 @@ void glutKeyboard (unsigned char keycode, int x, int y)
 	// Zurücksetzen der Kugeltransformation
   case 'n':
       sphere.model = glm::mat4(1.0f);
+      sphereRadius = 1.0f;
+      cameraDistance = 4.0f;
+
+      initSphere();
+      initAxes();
+      initNormals();
+      updateView();
     break;
 
     // Skalierung der Kugel
