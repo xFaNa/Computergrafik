@@ -42,6 +42,11 @@ float planet2Rotation = 0.0f;
 float orbitAngle = 0.0f;             // Aktueller Winkel der Umlaufbahn des Planeten
 
 float moon1Orbit = 0.0f;
+float moon2Orbit = 0.0f;
+
+float speedFactor = 1.0f;
+bool animationRunning = true;
+
 
 int subdivisionDepth = 0;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
 GLsizei sphereIndexCount = 0;
@@ -453,7 +458,7 @@ void render()
 
     moon1Model = glm::translate(
         moon1Model,
-        glm::vec3(1.0f, 0.0f, 0.0f)
+        glm::vec3(2.0f, 0.0f, 0.0f)
     );
 
     moon1Model = glm::scale(
@@ -493,18 +498,56 @@ void render()
 
     renderSphere(planet2Model);
 
+    /* Mond 2
+    *
+    */
+
+    glm::mat4 moon2Model = planet2Model;
+
+    // Mond umläuft Planet 2
+    moon2Model = glm::rotate(
+        moon2Model,
+        glm::radians(moon2Orbit),
+        glm::vec3(0.0f, 1.0f, 0.0f)
+    );
+
+    // Abstand zum Planeten
+    moon2Model = glm::translate(
+        moon2Model,
+        glm::vec3(2.0f, 0.0f, 0.0f)
+    );
+
+	// Größe des Mondes
+    moon2Model = glm::scale(
+        moon2Model,
+        glm::vec3(0.4f)
+    );
+
+    renderSphere(moon2Model);
+
 
     glDisable(GL_DEPTH_TEST);
 
     renderAxes(sunModel);
+
     renderAxes(planet1Model);
+    renderAxes(moon1Model);
+
     renderAxes(planet2Model);
+    renderAxes(moon2Model);
 
     glEnable(GL_DEPTH_TEST);
 
-	planet1Rotation += 1.0f; // Geschwindigkeit der Eigenrotation erhöhen
-	planet2Rotation += 0.8f; // Geschwindigkeit der Eigenrotation erhöhen
-	orbitAngle += 0.2f; // Geschwindigkeit der Umlaufbahn erhöhen
+    if (animationRunning)
+    {
+        orbitAngle += 0.2f * speedFactor;
+
+        planet1Rotation += 1.0f * speedFactor;
+        planet2Rotation += 0.8f * speedFactor;
+
+        moon1Orbit += 2.0f * speedFactor;
+        moon2Orbit += 1.5f * speedFactor;
+    }
 }
 
 void glutDisplay ()
@@ -529,121 +572,146 @@ void glutResize (int width, int height)
 /*
  Callback for char input.
  */
-void glutKeyboard (unsigned char keycode, int x, int y)
+void glutKeyboard(unsigned char keycode, int x, int y)
 {
-  switch (keycode) {
-  case 27: // ESC
-    glutDestroyWindow ( glutID );
-    return;
-  
-    // Änderung des Subdivison-Levels
-  case '+':
+    switch (keycode) {
+    case 27: // ESC
+        glutDestroyWindow(glutID);
+        return;
 
-      if (subdivisionDepth < 4)
-      {
-          subdivisionDepth++;
+        // Änderung des Subdivison-Levels
+    case '+':
 
-          std::cout << "Subdivision Depth: "
-              << subdivisionDepth << std::endl;
+        if (subdivisionDepth < 4)
+        {
+            subdivisionDepth++;
 
-          initSphere();
-      }
-      break;
+            std::cout << "Subdivision Depth: "
+                << subdivisionDepth << std::endl;
 
-    // Änderung des Subdivison-Levels
-  case '-':
+            initSphere();
+        }
+        break;
 
-      if (subdivisionDepth > 0)
-      {
-          subdivisionDepth--;
+        // Änderung des Subdivison-Levels
+    case '-':
 
-          std::cout << "Subdivision Depth: "
-              << subdivisionDepth << std::endl;
+        if (subdivisionDepth > 0)
+        {
+            subdivisionDepth--;
 
-          initSphere();
-      }
-    break;
+            std::cout << "Subdivision Depth: "
+                << subdivisionDepth << std::endl;
 
-    // Rotation der Kugel um die lokalen Achsen
-  case 'x':
-      sphere.model = sphere.model * glm::rotate(
-          glm::mat4(1.f),
-          glm::radians(rotationStep),
-          glm::vec3(1.0f, 0.0f, 0.0f)
-      );
-    break;
+            initSphere();
+        }
+        break;
 
-    // Rotation der Kugel um die lokalen Achsen
-  case 'y':
-      sphere.model = sphere.model * glm::rotate(
-          glm::mat4(1.0f),
-          glm::radians(rotationStep),
-          glm::vec3(0.0f, 1.0f, 0.0f)
-      );
-    break;
+        // Rotation der Kugel um die lokalen Achsen
+    case 'x':
+        sphere.model = sphere.model * glm::rotate(
+            glm::mat4(1.f),
+            glm::radians(rotationStep),
+            glm::vec3(1.0f, 0.0f, 0.0f)
+        );
+        break;
 
-    // Rotation der Kugel um die lokalen Achsen
-  case 'z':
-      sphere.model = sphere.model * glm::rotate(
-          glm::mat4(1.0f),
-          glm::radians(rotationStep),
-          glm::vec3(0.0f, 0.0f, 1.0f)
-      );
-    break;
+        // Rotation der Kugel um die lokalen Achsen
+    case 'y':
+        sphere.model = sphere.model * glm::rotate(
+            glm::mat4(1.0f),
+            glm::radians(rotationStep),
+            glm::vec3(0.0f, 1.0f, 0.0f)
+        );
+        break;
 
-	// Zurücksetzen der Kugeltransformation
-  case 'n':
-      sphere.model = glm::mat4(1.0f);
-      sphereRadius = 1.0f;
-      cameraDistance = 4.0f;
+        // Rotation der Kugel um die lokalen Achsen
+    case 'z':
+        sphere.model = sphere.model * glm::rotate(
+            glm::mat4(1.0f),
+            glm::radians(rotationStep),
+            glm::vec3(0.0f, 0.0f, 1.0f)
+        );
+        break;
 
-      initSphere();
-      initAxes();
-      updateView();
-    break;
+        // Zurücksetzen der Kugeltransformation
+    case 'n':
+        sphere.model = glm::mat4(1.0f);
+        sphereRadius = 1.0f;
+        cameraDistance = 4.0f;
 
-    // Skalierung der Kugel
-  case 'r':
-      if (sphereRadius > 0.3f)
-      {
-          sphereRadius -= 0.1f;
-          initSphere();
-          initAxes();
-      }
-      break;
-      
-      // Skalierung der Kugel
-  case 'R':
-      if (sphereRadius < 2.0f)
-      {
-          sphereRadius += 0.1f;
-          initSphere();
-          initAxes();
-      }
-      break;
+        initSphere();
+        initAxes();
+        updateView();
+        break;
 
-      // Kamera-Zoom durch Veränderung der Kameradistanz
-  case 'a':
+        // Skalierung der Kugel
+    case 'r':
+        if (sphereRadius > 0.3f)
+        {
+            sphereRadius -= 0.1f;
+            initSphere();
+            initAxes();
+        }
+        break;
 
-      if (cameraDistance > 1.0f)
-      {
-          cameraDistance -= 0.2f;
-          updateView();
-      }
+        // Skalierung der Kugel
+    case 'R':
+        if (sphereRadius < 2.0f)
+        {
+            sphereRadius += 0.1f;
+            initSphere();
+            initAxes();
+        }
+        break;
 
-      break;
-      
-      // Kamera-Zoom durch Veränderung der Kameradistanz
-  case 's':
+        // Kamera-Zoom durch Veränderung der Kameradistanz
+    case 'a':
 
-      if (cameraDistance < 10.0f)
-      {
-          cameraDistance += 0.2f;
-          updateView();
-      }
+        if (cameraDistance > 1.0f)
+        {
+            cameraDistance -= 0.2f;
+            updateView();
+        }
 
-      break;
-  }
+        break;
+
+        // Kamera-Zoom durch Veränderung der Kameradistanz
+    case 's':
+
+        if (cameraDistance < 10.0f)
+        {
+            cameraDistance += 0.2f;
+            updateView();
+        }
+        break;
+
+    case 'd':
+        speedFactor -= 0.1f;
+
+        if (speedFactor < 0.1f)
+        {
+            speedFactor = 0.1f;
+        }
+
+        std::cout << "Speed: " << speedFactor << std::endl;
+        break;
+
+    case 'f':
+        speedFactor += 0.1f;
+
+        if (speedFactor > 5.0f)
+        {
+            speedFactor = 5.0f;
+        }
+
+        std::cout << "Speed: " << speedFactor << std::endl;
+        break;
+
+    case 'g':
+        animationRunning = !animationRunning;
+        break;
+    }
 
   glutPostRedisplay();
 }
