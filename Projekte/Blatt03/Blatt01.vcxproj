@@ -22,7 +22,7 @@
     <ProjectGuid>{750312BA-059E-48B7-926D-33C36D349E4F}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>Blatt01</RootNamespace>
-    <ProjectName>Blatt03</ProjectName>
+    <ProjectName>Space</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
