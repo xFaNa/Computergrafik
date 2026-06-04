@@ -42,6 +42,7 @@ float sphereRadius = 1.0f;           // Radius der Kugel
 float earthOrbit = 0.0f;
 float saturnOrbit = 180.0f;
 
+float sunRotation = 0.0f;
 float earthRotation = 0.0f;
 float saturnRotation = 0.0f;
 float orbitAngle = 0.0f;             // Aktueller Winkel der Umlaufbahn des Planeten
@@ -51,6 +52,7 @@ float moon2Orbit = 0.0f;
 
 float speedFactor = 1.0f;
 bool animationRunning = true;
+bool showAxes = true;
 bool keys[256] = { false };
 
 int lastTime = 0;
@@ -60,7 +62,6 @@ bool ignoreMouseWarp = false;
 
 
 int subdivisionDepth = 4;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
-GLsizei sphereIndexCount = 0;
 
 /*
 Struct to hold data for object rendering.
@@ -96,6 +97,11 @@ public:
 Object sphere;
 Object axes;
 Object stars;
+Object saturnRing;
+
+GLsizei sphereIndexCount = 0;
+GLsizei saturnRingVertexCount = 0;
+
 
 // Rendert die Kugel mithilfe der MVP-Matrix, des VAOs und des Indexbuffers
 void renderSphere(glm::mat4 model)
@@ -146,7 +152,23 @@ void renderStars()
     glBindVertexArray(0);
 }
 
+void renderSaturnRing(glm::mat4 model)
+{
+    glm::mat4x4 mvp = projection * view * model;
 
+    program.use();
+    program.setUniform("mvp", mvp);
+
+    glBindVertexArray(saturnRing.vao);
+
+    glDrawArrays(
+        GL_LINES,
+        0,
+        saturnRingVertexCount
+    );
+
+    glBindVertexArray(0);
+}
 
 // Erzeugt die Kugelgeometrie aus einem unterteilten Oktaeder
 // und initialisiert die benötigten OpenGL-Buffer
@@ -453,6 +475,81 @@ void initStars()
     glBindVertexArray(0);
 }
 
+void initSaturnRing()
+{
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec3> colors;
+
+    const int segments = 200;
+    const float innerRadius = 1.0f;
+    const float outerRadius = 1.6f;
+
+    for (int i = 0; i < segments; i++)
+    {
+        float angle1 = 2.0f * 3.1415926f * i / segments;
+        float angle2 = 2.0f * 3.1415926f * (i + 1) / segments;
+
+        glm::vec3 inner1(cos(angle1) * innerRadius, 0.0f, sin(angle1) * innerRadius);
+        glm::vec3 outer1(cos(angle1) * outerRadius, 0.0f, sin(angle1) * outerRadius);
+
+        glm::vec3 inner2(cos(angle2) * innerRadius, 0.0f, sin(angle2) * innerRadius);
+        glm::vec3 outer2(cos(angle2) * outerRadius, 0.0f, sin(angle2) * outerRadius);
+
+        // Outer ring line
+        vertices.push_back(outer1);
+        vertices.push_back(outer2);
+
+        // Inner ring line
+        vertices.push_back(inner1);
+        vertices.push_back(inner2);
+
+        // Small radial line
+        vertices.push_back(inner1);
+        vertices.push_back(outer1);
+
+        for (int j = 0; j < 6; j++)
+        {
+            colors.push_back(glm::vec3(0.9f, 0.8f, 0.5f));
+        }
+    }
+
+    saturnRingVertexCount = static_cast<GLsizei>(vertices.size());
+
+    GLuint programId = program.getHandle();
+    GLuint pos;
+
+    glGenVertexArrays(1, &saturnRing.vao);
+    glBindVertexArray(saturnRing.vao);
+
+    glGenBuffers(1, &saturnRing.positionBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, saturnRing.positionBuffer);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        vertices.size() * sizeof(glm::vec3),
+        vertices.data(),
+        GL_STATIC_DRAW
+    );
+
+    pos = glGetAttribLocation(programId, "position");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3 , GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &saturnRing.colorBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, saturnRing.colorBuffer);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        colors.size() * sizeof(glm::vec3),
+        colors.data(),
+        GL_STATIC_DRAW
+    );
+
+    pos = glGetAttribLocation(programId, "color");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glBindVertexArray(0);
+}
+
 // Erstellt die Kamerasicht mithilfe von Position, Blickrichtung und Up-Vektor
 void updateView()
 {
@@ -469,6 +566,9 @@ bool init()
   // OpenGL: Set "background" color and enable depth testing.
   glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
   glEnable(GL_DEPTH_TEST);
+  
+
+  // Switch back to wireframe for the other objects.
   glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
   
   updateView();
@@ -493,6 +593,7 @@ bool init()
   initSphere();
   initAxes();
   initStars();
+  initSaturnRing();
   
   return true;
 }
@@ -518,10 +619,40 @@ void render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     renderStars();
 
+
+    /*
+        Sonne rendern erstellen
+    */
     glm::mat4 sunModel = glm::mat4(1.0f);
-    sunModel = glm::scale(sunModel, glm::vec3(0.7f));
+    sunModel = glm::rotate(
+        sunModel,
+        glm::radians(sunRotation),
+        glm::vec3(0.0f, 1.0f, 0.0f)
+    );
+
+    float sunPulse = 0.7f + 0.05f * sin(glm::radians(sunRotation * 3.0f));
+
+    sunModel == glm::scale(
+        sunModel,
+        glm::vec3(sunPulse)
+    );
+
+    // Render sun filled
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
     renderSphere(sunModel);
+
+    // Render a larger wireframe glow around the sun
+    glm::mat4 sunGlowModel = glm::mat4(1.0f);
+
+    sunGlowModel = glm::scale(
+        sunGlowModel,
+        glm::vec3(0.95f)
+    );
+
+    // Switch back to wireframe for planets
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    renderSphere(sunGlowModel);
 
 
     /* Erde
@@ -540,7 +671,7 @@ void render()
     // Abstand zur Sonne
     earth = glm::translate(
         earth,
-        glm::vec3(2.0f, 0.0f, 0.0f)
+        glm::vec3(5.0f, 0.0f, 0.0f)
     );
 
     // Achsneigung um 45 Grad
@@ -591,29 +722,30 @@ void render()
     renderSphere(moon1Model);
 
     /* Saturn
-    * 
-    * 
-    */
-    glm::mat4 saturn = glm::mat4(1.0f);
-
+     *
+     */
     float saturnAngle = glm::radians(saturnOrbit);
-    saturnOrbit += 0.04f * speedFactor;
 
-    float saturnX = cos(saturnAngle) * 5.0f;
-    float saturnZ = sin(saturnAngle) * 3.0f;
+    float saturnX = cos(saturnAngle) * 50.0f;
+    float saturnZ = sin(saturnAngle) * 30.0f;
 
-    glm::mat4 saturnModel = glm::mat4(1.0f);
+    // Base model contains Saturn's position and rotation,
+    // but not the planet size.
+    glm::mat4 saturnBaseModel = glm::mat4(1.0f);
 
-    saturnModel = glm::translate(
-        saturnModel,
+    saturnBaseModel = glm::translate(
+        saturnBaseModel,
         glm::vec3(saturnX, 0.0f, saturnZ)
     );
 
-    saturnModel = glm::rotate(
-        saturnModel,
+    saturnBaseModel = glm::rotate(
+        saturnBaseModel,
         glm::radians(saturnRotation),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
+
+    // Saturn sphere
+    glm::mat4 saturnModel = saturnBaseModel;
 
     saturnModel = glm::scale(
         saturnModel,
@@ -622,11 +754,27 @@ void render()
 
     renderSphere(saturnModel);
 
+    // Saturn ring
+    glm::mat4 saturnRingModel = saturnBaseModel;
+
+    saturnRingModel = glm::rotate(
+        saturnRingModel,
+        glm::radians(20.0f),
+        glm::vec3(1.0f, 0.0f, 0.0f)
+    );
+
+    saturnRingModel = glm::scale(
+        saturnRingModel,
+        glm::vec3(0.7f)
+    );
+
+    renderSaturnRing(saturnRingModel);
+
     /* Mond 2
     *
     */
 
-    glm::mat4 moon2Model = saturnModel;
+    glm::mat4 moon2Model = saturnBaseModel;
 
     // Mond umläuft Planet 2
     moon2Model = glm::rotate(
@@ -638,7 +786,7 @@ void render()
     // Abstand zum Planeten
     moon2Model = glm::translate(
         moon2Model,
-        glm::vec3(2.0f, 0.0f, 0.0f)
+        glm::vec3(3.0f, 0.0f, 0.0f)
     );
 
 	// Größe des Mondes
@@ -649,26 +797,30 @@ void render()
 
     renderSphere(moon2Model);
 
+    
+    if (showAxes)
+    {
+        glDisable(GL_DEPTH_TEST);
 
-    glDisable(GL_DEPTH_TEST);
+        renderAxes(sunModel);
+        renderAxes(earth);
+        renderAxes(moon1Model);
+        renderAxes(saturnBaseModel);
+        renderAxes(moon2Model);
 
-    renderAxes(sunModel);
-
-    renderAxes(earth);
-    renderAxes(moon1Model);
-
-    renderAxes(saturnModel);
-    renderAxes(moon2Model);
-
-    glEnable(GL_DEPTH_TEST);
+        glEnable(GL_DEPTH_TEST);
+    }
+    
 
     if (animationRunning)
     {
         orbitAngle += 0.2f * speedFactor;
 
+        sunRotation += 0.1f * speedFactor;
         earthRotation += 1.0f * speedFactor;
         saturnRotation += 0.8f * speedFactor;
 
+        saturnOrbit += 0.04f * speedFactor;
         moon1Orbit += 2.0f * speedFactor;
         moon2Orbit += 1.5f * speedFactor;
     }
@@ -715,6 +867,15 @@ void glutMouseMove(int x, int y)
 
 void glutKeyboardDown(unsigned char keycode, int x, int y)
 {
+    if (!keys[keycode])
+    {
+        if (keycode == 'k')
+        {
+            showAxes = !showAxes;
+            std::cout << "showAxes = " << showAxes << std::endl;
+        }
+    }
+
     keys[keycode] = true;
 
     if (keycode == 27)
