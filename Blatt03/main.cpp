@@ -37,18 +37,20 @@ float rotationStep = 5.0f;          // 5 Grad Rotation pro Tastendruck
 float cameraDistance = 4.0f;        // Kamera distanz
 float sphereRadius = 1.0f;           // Radius der Kugel
 
-float planet1Rotation = 0.0f;   
+float planet1Rotation = 0.0f;       // Aktueller Winkel der Eigenrotation
 float planet2Rotation = 0.0f;
 float orbitAngle = 0.0f;             // Aktueller Winkel der Umlaufbahn des Planeten
 
-float moon1Orbit = 0.0f;
-float moon2Orbit = 0.0f;
+float moon1Orbit = 0.0f;            // Umlaufwinkel von Mond1 zu Planet 1
+float moon2Orbit = 0.0f;            
 
-float speedFactor = 1.0f;
-bool animationRunning = true;
+float speedFactor = 0.5f;           // Globaler Geschwindigkeitsfaktor für alle Animationen
+bool animationRunning = false;
+bool showAxes = false;               // komplettes Koordinatensystem
+bool showAxisLines = true;          // einzelne Rotationsachsen
 
 
-int subdivisionDepth = 0;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
+int subdivisionDepth = 1;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
 GLsizei sphereIndexCount = 0;
 
 /*
@@ -84,6 +86,7 @@ public:
 // Render Objekte
 Object sphere;
 Object axes;
+Object axisLine;
 
 // Rendert die Kugel mithilfe der MVP-Matrix, des VAOs und des Indexbuffers
 void renderSphere(glm::mat4 model)
@@ -343,6 +346,69 @@ void initAxes()
     glBindVertexArray(0);
 }
 
+void initAxisLine()
+{
+    const std::vector<glm::vec3> vertices =
+    {
+        glm::vec3(0.0f, -1.5f, 0.0f),
+        glm::vec3(0.0f,  1.5f, 0.0f)
+    };
+
+    const std::vector<glm::vec3> colors =
+    {
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f)
+    };
+
+    const std::vector<GLushort> indices =
+    {
+        0, 1
+    };
+
+    GLuint programId = program.getHandle();
+    GLuint pos;
+
+    glGenVertexArrays(1, &axisLine.vao);
+    glBindVertexArray(axisLine.vao);
+
+    glGenBuffers(1, &axisLine.positionBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, axisLine.positionBuffer);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        vertices.size() * sizeof(glm::vec3),
+        vertices.data(),
+        GL_STATIC_DRAW
+    );
+
+    pos = glGetAttribLocation(programId, "position");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &axisLine.colorBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, axisLine.colorBuffer);
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        colors.size() * sizeof(glm::vec3),
+        colors.data(),
+        GL_STATIC_DRAW
+    );
+
+    pos = glGetAttribLocation(programId, "color");
+    glEnableVertexAttribArray(pos);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glGenBuffers(1, &axisLine.indexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, axisLine.indexBuffer);
+    glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        indices.size() * sizeof(GLushort),
+        indices.data(),
+        GL_STATIC_DRAW
+    );
+
+    glBindVertexArray(0);
+}
+
 // Erstellt die Kamerasicht mithilfe von Position, Blickrichtung und Up-Vektor
 void updateView()
 {
@@ -353,6 +419,17 @@ void updateView()
     view = glm::lookAt(eye, center, up);
 }
 
+void renderAxisLine(glm::mat4 model)
+{
+    glm::mat4x4 mvp = projection * view * model;
+
+    program.use();
+    program.setUniform("mvp", mvp);
+
+    glBindVertexArray(axisLine.vao);
+    glDrawElements(GL_LINES, 2, GL_UNSIGNED_SHORT, 0);
+    glBindVertexArray(0);
+}
 
 /*
  Initialization. Should return true if everything is ok and false if something went wrong.
@@ -385,7 +462,7 @@ bool init()
   // Create all objects.
   initSphere();
   initAxes();
-  
+  initAxisLine();
   return true;
 }
 
@@ -396,7 +473,11 @@ void render()
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // Startet mit einer Einheitsmatrix als Ausgang für alle Transformationen der Sonne.
     glm::mat4 sunModel = glm::mat4(1.0f);
+   
+
+    // Skalierung der Sonne
     sunModel = glm::scale(sunModel, glm::vec3(0.7f));
 
     renderSphere(sunModel);
@@ -406,41 +487,48 @@ void render()
     * 
     * 
     */
-    glm::mat4 planet1Model = glm::mat4(1.0f);
 
-    // Umlaufbahn um die Sonne
-    planet1Model = glm::rotate(
-        planet1Model,
+    // Basismodell des Planeten, enthält Position und Rotation, jedoch keine Skalierung 
+    glm::mat4 planet1BaseModel = glm::mat4(1.0f);
+
+    // Roatation um die Sonne, dadurch entsteht die Umlaufbewegung des Planeten.
+    planet1BaseModel = glm::rotate(
+        planet1BaseModel,
         glm::radians(orbitAngle),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
-    // Abstand zur Sonne
-    planet1Model = glm::translate(
-        planet1Model,
+    // Abstand des Planeten zur sonne
+    planet1BaseModel = glm::translate(
+        planet1BaseModel,
         glm::vec3(2.0f, 0.0f, 0.0f)
     );
 
-    // Achsneigung um 45 Grad
-    planet1Model = glm::rotate(
-        planet1Model,
-		glm::radians(45.0f),
+    // Achsenneigung des Planeten
+    planet1BaseModel = glm::rotate(
+        planet1BaseModel,
+        glm::radians(45.0f),            // Die Rotattionsachse wird um 45Grad geneigt
         glm::vec3(0.0f, 0.0f, 1.0f)
     );
 
     // Eigenrotation des Planeten
-    planet1Model = glm::rotate(
-        planet1Model,
+    planet1BaseModel = glm::rotate(
+        planet1BaseModel,
         glm::radians(planet1Rotation),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
-	// Größe des Planeten
+
+    // Erzeugt das endgültige Modell des Planeten, Basistransformation bleibt erhalten
+    glm::mat4 planet1Model = planet1BaseModel;
+
+    // Skaliert die Kugel auf Planetengröße
     planet1Model = glm::scale(
         planet1Model,
         glm::vec3(0.3f)
     );
 
+    // Zeichnet den Planeten
     renderSphere(planet1Model);
 
     /* Mond 1
@@ -448,49 +536,59 @@ void render()
     * 
     */
 
-    glm::mat4 moon1Model = planet1Model;
+    // Der Mond startet im Koordinatensystem von Planet1
+    glm::mat4 moon1Model = planet1BaseModel;
 
+    // Umlaufbewegung des Mond1 um Planet1, dadurch das wir von planet1BaseModel starten, passiert die Rotation lokal um den Planeten
     moon1Model = glm::rotate(
         moon1Model,
         glm::radians(moon1Orbit),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
+    // Abstand des Mondes zu Planet1, der Mond wird aus dem Mittelpunkt des Planeten herausverschoben
     moon1Model = glm::translate(
         moon1Model,
-        glm::vec3(2.0f, 0.0f, 0.0f)
+        glm::vec3(0.8f, 0.0f, 0.0f)
     );
 
+    // Größe des Mondes
     moon1Model = glm::scale(
         moon1Model,
-        glm::vec3(0.4f)
+        glm::vec3(0.12f)
     );
 
+    // Zeichne den Mond
     renderSphere(moon1Model);
 
     /* Planet 2
     * 
     * 
     */
-    glm::mat4 planet2Model = glm::mat4(1.0f);
+    glm::mat4 planet2BaseModel = glm::mat4(1.0f);
 
-    planet2Model = glm::rotate(
-        planet2Model,
+    // Opposite orbit position
+    planet2BaseModel = glm::rotate(
+        planet2BaseModel,
         glm::radians(orbitAngle + 180.0f),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
-    planet2Model = glm::translate(
-        planet2Model,
+    // Abstand zur Sonne
+    planet2BaseModel = glm::translate(
+        planet2BaseModel,
         glm::vec3(2.0f, 0.0f, 0.0f)
     );
 
-    planet2Model = glm::rotate(
-        planet2Model,
+    // Rotation
+    planet2BaseModel = glm::rotate(
+        planet2BaseModel,
         glm::radians(planet2Rotation),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
+    // Planeten skalierung
+    glm::mat4 planet2Model = planet2BaseModel;
     planet2Model = glm::scale(
         planet2Model,
         glm::vec3(0.3f)
@@ -502,39 +600,49 @@ void render()
     *
     */
 
-    glm::mat4 moon2Model = planet2Model;
+    glm::mat4 moon2Model = planet2BaseModel;
 
-    // Mond umläuft Planet 2
     moon2Model = glm::rotate(
         moon2Model,
         glm::radians(moon2Orbit),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
-    // Abstand zum Planeten
     moon2Model = glm::translate(
         moon2Model,
-        glm::vec3(2.0f, 0.0f, 0.0f)
+        glm::vec3(0.8f, 0.0f, 0.0f)
     );
 
-	// Größe des Mondes
     moon2Model = glm::scale(
         moon2Model,
-        glm::vec3(0.4f)
+        glm::vec3(0.12f)
     );
 
     renderSphere(moon2Model);
 
-
     glDisable(GL_DEPTH_TEST);
 
-    renderAxes(sunModel);
+    if (showAxes)
+    {
+        renderAxes(sunModel);
 
-    renderAxes(planet1Model);
-    renderAxes(moon1Model);
+        renderAxes(planet1Model);
+        renderAxes(moon1Model);
 
-    renderAxes(planet2Model);
-    renderAxes(moon2Model);
+        renderAxes(planet2Model);
+        renderAxes(moon2Model);
+    }
+
+    if (showAxisLines)
+    {
+        renderAxisLine(sunModel);
+
+        renderAxisLine(planet1Model);
+        renderAxisLine(moon1Model);
+
+        renderAxisLine(planet2Model);
+        renderAxisLine(moon2Model);
+    }
 
     glEnable(GL_DEPTH_TEST);
 
@@ -582,7 +690,7 @@ void glutKeyboard(unsigned char keycode, int x, int y)
         // Änderung des Subdivison-Levels
     case '+':
 
-        if (subdivisionDepth < 4)
+        if (subdivisionDepth < 6)
         {
             subdivisionDepth++;
 
@@ -607,42 +715,24 @@ void glutKeyboard(unsigned char keycode, int x, int y)
         }
         break;
 
-        // Rotation der Kugel um die lokalen Achsen
-    case 'x':
-        sphere.model = sphere.model * glm::rotate(
-            glm::mat4(1.f),
-            glm::radians(rotationStep),
-            glm::vec3(1.0f, 0.0f, 0.0f)
-        );
-        break;
-
-        // Rotation der Kugel um die lokalen Achsen
-    case 'y':
-        sphere.model = sphere.model * glm::rotate(
-            glm::mat4(1.0f),
-            glm::radians(rotationStep),
-            glm::vec3(0.0f, 1.0f, 0.0f)
-        );
-        break;
-
-        // Rotation der Kugel um die lokalen Achsen
-    case 'z':
-        sphere.model = sphere.model * glm::rotate(
-            glm::mat4(1.0f),
-            glm::radians(rotationStep),
-            glm::vec3(0.0f, 0.0f, 1.0f)
-        );
-        break;
-
-        // Zurücksetzen der Kugeltransformation
+        // Zurücksetzen der ganzen Szene
     case 'n':
-        sphere.model = glm::mat4(1.0f);
-        sphereRadius = 1.0f;
         cameraDistance = 4.0f;
 
-        initSphere();
-        initAxes();
+        orbitAngle = 0.0f;
+
+        planet1Rotation = 0.0f;
+        planet2Rotation = 0.0f;
+
+        moon1Orbit = 0.0f;
+        moon2Orbit = 0.0f;
+
+        speedFactor = 0.5f;
+        animationRunning = false;
+
         updateView();
+
+        std::cout << "Szene zurückgesetzt" << std::endl;
         break;
 
         // Skalierung der Kugel
@@ -684,6 +774,16 @@ void glutKeyboard(unsigned char keycode, int x, int y)
             cameraDistance += 0.2f;
             updateView();
         }
+        break;
+
+    case 'h':
+        showAxes = !showAxes;
+        std::cout << "Koordinatensysteme: " << showAxes << std::endl;
+        break;
+
+    case 'j':
+        showAxisLines = !showAxisLines;
+        std::cout << "Achsenlinien: " << showAxisLines << std::endl;
         break;
 
     case 'd':
