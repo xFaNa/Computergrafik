@@ -16,6 +16,10 @@
   <ItemGroup>
     <None Include="shader\simple.frag" />
     <None Include="shader\simple.vert" />
+    <None Include="shader\flat.frag" />
+    <None Include="shader\flat.vert" />
+    <None Include="shader\gouraud.frag" />
+    <None Include="shader\gouraud.vert" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Blatt04.rc" />

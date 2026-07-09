@@ -4,6 +4,15 @@
 #include <vector>
 #include <glm/glm.hpp>
 
+struct FaceVertex {
+    int positionIndex;
+    int normalIndex;
+};
+
+struct Face {
+    std::vector<FaceVertex> vertices;
+};
+
 class OBJLoader
 {
 public:
@@ -13,4 +22,12 @@ public:
     std::vector<glm::vec3> normals;
     std::vector<glm::vec3> meshVertices;
     std::vector<glm::vec3> meshNormals;
+
+    std::vector<Face> faces;
+    bool hasNormals = false;
+
+    glm::vec3 minPosition;
+    glm::vec3 maxPosition;
+    glm::vec3 center;
+    float maxExtent = 1.0f;
 };

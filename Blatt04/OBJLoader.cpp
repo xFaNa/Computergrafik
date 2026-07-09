@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iostream>
 #include <string>
+#define NOMINMAX
 #include <windows.h>
 #include <glm/glm.hpp>
 
@@ -47,6 +48,7 @@ bool OBJLoader::load(const std::string& filename)
         else if (prefix == "f") {
             std::vector<int> vertexIndices;
             std::vector<int> normalIndices;
+            Face face;
 
             std::string token;
 
@@ -62,24 +64,65 @@ bool OBJLoader::load(const std::string& filename)
                 std::getline(tokenStream, vnString, '/');
 
                 int vIndex = std::stoi(vString) - 1;
-                int nIndex = std::stoi(vnString) - 1;
+
+                int nIndex = -1;
+                if (!vnString.empty()) {
+                    nIndex = std::stoi(vnString) - 1;
+                }
 
                 vertexIndices.push_back(vIndex);
                 normalIndices.push_back(nIndex);
+
+                FaceVertex fv;
+                fv.positionIndex = vIndex;
+                fv.normalIndex = nIndex;
+                face.vertices.push_back(fv);
             }
+
+            faces.push_back(face);
 
             for (size_t i = 1; i + 1 < vertexIndices.size(); ++i) {
                 meshVertices.push_back(positions[vertexIndices[0]]);
                 meshVertices.push_back(positions[vertexIndices[i]]);
                 meshVertices.push_back(positions[vertexIndices[i + 1]]);
 
-                meshNormals.push_back(normals[normalIndices[0]]);
-                meshNormals.push_back(normals[normalIndices[i]]);
-                meshNormals.push_back(normals[normalIndices[i + 1]]);
+                if (normalIndices[0] >= 0 &&
+                    normalIndices[i] >= 0 &&
+                    normalIndices[i + 1] >= 0) {
+                    meshNormals.push_back(normals[normalIndices[0]]);
+                    meshNormals.push_back(normals[normalIndices[i]]);
+                    meshNormals.push_back(normals[normalIndices[i + 1]]);
+                }
             }
 
             faceCount++;
         }
+
+    if (!positions.empty()) {
+       minPosition = positions[0];
+       maxPosition = positions[0];
+
+       for (const glm::vec3& p : positions) {
+           if (p.x < minPosition.x) minPosition.x = p.x;
+           if (p.y < minPosition.y) minPosition.y = p.y;
+           if (p.z < minPosition.z) minPosition.z = p.z;
+
+           if (p.x > maxPosition.x) maxPosition.x = p.x;
+           if (p.y > maxPosition.y) maxPosition.y = p.y;
+           if (p.z > maxPosition.z) maxPosition.z = p.z;
+       }
+
+          center = (minPosition + maxPosition) * 0.5f;
+
+          glm::vec3 size = maxPosition - minPosition;
+          maxExtent = glm::max(size.x, glm::max(size.y, size.z));
+        }
+    }
+
+    hasNormals = !normals.empty();
+
+    if (!hasNormals) {
+        std::cout << "OBJ enthält keine Normalen." << std::endl;
     }
 
     std::cout << "OBJ geladen:" << std::endl;
@@ -93,6 +136,10 @@ bool OBJLoader::load(const std::string& filename)
     std::cout << "Dreiecksvertices: " << meshVertices.size() << std::endl;
     std::cout << "Dreiecksnormalen: " << meshNormals.size() << std::endl;
     
+    std::cout << "BBox Min: " << minPosition.x << ", " << minPosition.y << ", " << minPosition.z << std::endl;
+    std::cout << "BBox Max: " << maxPosition.x << ", " << maxPosition.y << ", " << maxPosition.z << std::endl;
+    std::cout << "Center: " << center.x << ", " << center.y << ", " << center.z << std::endl;
+    std::cout << "Max Extent: " << maxExtent << std::endl;
 
     return true;
 }

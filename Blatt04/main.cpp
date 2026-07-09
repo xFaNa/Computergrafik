@@ -24,11 +24,17 @@ const int WINDOW_HEIGHT = 720;
 int glutID = 0;
 
 // Shaderprogramm Vertex- und Fragmentshader
-cg::GLSLProgram program;
+cg::GLSLProgram phongProgram;
+cg::GLSLProgram gouraudProgram;
+cg::GLSLProgram flatProgram;
+
+cg::GLSLProgram* activeProgram = &phongProgram;
 
 // View and projection matrix
 glm::mat4x4 view;
 glm::mat4x4 projection;
+
+glm::vec3 cameraPosition;
 
 // Camera parameters
 float zNear = 0.1f;
@@ -47,17 +53,34 @@ float moon1Orbit = 0.0f;            // Umlaufwinkel von Mond1 zu Planet 1
 float moon2Orbit = 0.0f;            
 
 float speedFactor = 0.5f;           // Globaler Geschwindigkeitsfaktor für alle Animationen
+
 bool animationRunning = false;
 bool showAxes = false;               // komplettes Koordinatensystem
-bool showAxisLines = true;          // einzelne Rotationsachsen
+bool showAxisLines = false;          // einzelne Rotationsachsen
+bool showNormals = false;
 
+bool wireframeMode = false;
+bool showBoundingBox = false;
+bool usePointLight = true;
 
-int subdivisionDepth = 4;           // Detailgrad der Kugel (Anzahl Unterteilungen der Dreiecke 0-4)
+int subdivisionDepth = 10;           // Detailgrad der Kugel 
 GLsizei sphereIndexCount = 0;
 
 GLuint starDestroyerVAO = 0;
 GLuint starDestroyerVBO = 0;
 int starDestroyerVertexCount = 0;
+
+GLuint starDestroyerNormalVAO = 0;
+GLuint starDestroyerNormalVBO = 0;
+int starDestroyerNormalVertexCount = 0;
+
+GLuint boundingBoxVAO = 0;
+GLuint boundingBoxVBO = 0;
+int boundingBoxVertexCount = 0;
+
+GLuint sphereNormalVAO = 0;
+GLuint sphereNormalVBO = 0;
+int sphereNormalVertexCount = 0;
 
 /*
 Struct to hold data for object rendering.
@@ -95,12 +118,23 @@ Object axes;
 Object axisLine;
 
 // Rendert die Kugel mithilfe der MVP-Matrix, des VAOs und des Indexbuffers
-void renderSphere(glm::mat4 model)
+void renderSphere(glm::mat4 model, glm::vec3 color, float specularStrength, float shininess)
 {
     glm::mat4x4 mvp = projection * view * model;
 
-    program.use();
-    program.setUniform("mvp", mvp);
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
+    activeProgram->setUniform("model", model);
+    activeProgram->setUniform("objectColor", color);
+
+    activeProgram->setUniform("specularStrength", specularStrength);
+    activeProgram->setUniform("shininess", shininess);
+
+    activeProgram->setUniform("lightType", usePointLight ? 1 : 0);
+    activeProgram->setUniform("lightDirection", glm::vec3(0.0f, 1.0f, 0.0f));
+    activeProgram->setUniform("lightPosition", cameraPosition);
+    activeProgram->setUniform("cameraPosition", cameraPosition);
+
 
     glBindVertexArray(sphere.vao);
     glDrawElements(GL_TRIANGLES, sphereIndexCount, GL_UNSIGNED_SHORT, 0);
@@ -112,8 +146,8 @@ void renderAxes(glm::mat4 model)
 {
     glm::mat4x4 mvp = projection * view * model;
 
-    program.use();
-    program.setUniform("mvp", mvp);
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
 
     glBindVertexArray(axes.vao);
     glDrawElements(GL_LINES, 6, GL_UNSIGNED_SHORT, 0);
@@ -122,16 +156,65 @@ void renderAxes(glm::mat4 model)
 
 void renderStarDestroyer(glm::mat4 model)
 {
-glm::mat4x4 mvp = projection * view * model;
+    glm::mat4x4 mvp = projection * view * model;
 
-program.use();
-program.setUniform("mvp", mvp);
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
+    activeProgram->setUniform("model", model);
+    activeProgram->setUniform("objectColor", glm::vec3(0.45f, 0.45f, 0.45f));
 
-glBindVertexArray(starDestroyerVAO);
-glDrawArrays(GL_TRIANGLES, 0, starDestroyerVertexCount);
-glBindVertexArray(0);
+    activeProgram->setUniform("specularStrength", 0.25f);
+    activeProgram->setUniform("shininess", 6.0f);
+
+    activeProgram->setUniform("lightType", usePointLight ? 1 : 0);
+    activeProgram->setUniform("lightDirection", glm::vec3(0.0f, 1.0f, 0.0f));
+    activeProgram->setUniform("lightPosition", cameraPosition);
+    activeProgram->setUniform("cameraPosition", cameraPosition);
+
+    glBindVertexArray(starDestroyerVAO);
+    glDrawArrays(GL_TRIANGLES, 0, starDestroyerVertexCount);
+    glBindVertexArray(0);
 }
 
+void renderStarDestroyerNormals(glm::mat4 model)
+{
+    glm::mat4x4 mvp = projection * view * model;
+
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
+    activeProgram->setUniform("objectColor", glm::vec3(0.0f, 1.0f, 1.0f));
+
+    glBindVertexArray(starDestroyerNormalVAO);
+    glDrawArrays(GL_LINES, 0, starDestroyerNormalVertexCount);
+    glBindVertexArray(0);
+}
+
+void renderSphereNormals(glm::mat4 model)
+{
+    glm::mat4x4 mvp = projection * view * model;
+
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
+    activeProgram->setUniform("objectColor", glm::vec3(1.0f, 0.0f, 0.0f));
+
+    glBindVertexArray(sphereNormalVAO);
+    glDrawArrays(GL_LINES, 0, sphereNormalVertexCount);
+    glBindVertexArray(0);
+}
+
+void renderBoundingBox(glm::mat4 model)
+{
+    glm::mat4x4 mvp = projection * view * model;
+
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
+    activeProgram->setUniform("model", model);
+    activeProgram->setUniform("objectColor", glm::vec3(1.0f, 1.0f, 0.0f));
+
+    glBindVertexArray(boundingBoxVAO);
+    glDrawArrays(GL_LINES, 0, boundingBoxVertexCount);
+    glBindVertexArray(0);
+}
 
 // Erzeugt die Kugelgeometrie aus einem unterteilten Oktaeder
 // und initialisiert die benötigten OpenGL-Buffer
@@ -175,15 +258,14 @@ void initSphere()
     std::cout << "Vertices: " << vertices.size() << std::endl;
     std::cout << "Indices: " << indices.size() << std::endl;
 
-    // Erzeugt für jeden Vertex dieselbe Farbe.
-    // Die Kugel wird dadurch komplett gelb dargestellt.
-    const std::vector<glm::vec3> colors(
-        vertices.size(),
-        glm::vec3(1.0f, 1.0f, 0.0f)
-    );
+    std::vector<glm::vec3> sphereNormals;
+
+    for (const glm::vec3& v : vertices) {
+        sphereNormals.push_back(glm::normalize(v));
+    }
 
     // OpenGL-ID des aktuellen Shaderprogramms
-    GLuint programId = program.getHandle();
+    GLuint programId = activeProgram->getHandle();
 
     // Variable zum Speichern der Attributpositionen
     GLuint pos;
@@ -231,31 +313,30 @@ void initSphere()
     );
 
     // -----------------------------
-    // Farbbuffer erzeugen
+    // Normalbuffer erzeugen
     // -----------------------------
 
-    // Erzeugt einen Buffer für die Farben
+    // Erzeugt einen Buffer für die Normalen
     glGenBuffers(1, &sphere.colorBuffer);
 
-    // Aktiviert den Farbbuffer
+    // Aktiviert den Normalenbuffer
     glBindBuffer(GL_ARRAY_BUFFER, sphere.colorBuffer);
 
-    // Kopiert die Farbdaten in den GPU-Speicher
+   
     glBufferData(
         GL_ARRAY_BUFFER,
-        colors.size() * sizeof(glm::vec3),
-        colors.data(),
+        sphereNormals.size() * sizeof(glm::vec3),
+        sphereNormals.data(),
         GL_STATIC_DRAW
     );
 
-    // Fragt die Position des "color"-Attributes im Shader ab
-    pos = glGetAttribLocation(programId, "color");
+    
+    pos = glGetAttribLocation(programId, "normal");
 
-    // Aktiviert das Farb-Attribut
+    
     glEnableVertexAttribArray(pos);
 
-    // Beschreibt den Aufbau der Farbdaten:
-    // 3 Floats pro Farbe (r,g,b)
+    
     glVertexAttribPointer(
         pos,
         3,
@@ -284,6 +365,46 @@ void initSphere()
     );
 
     // Deaktiviert das aktuelle VAO
+    glBindVertexArray(0);
+
+    std::vector<glm::vec3> sphereNormalLines;
+
+    float normalLength = 0.15f;
+
+    for (const glm::vec3& v : vertices) {
+        glm::vec3 start = v;
+        glm::vec3 normal = glm::normalize(v);
+        glm::vec3 end = start + normal * normalLength;
+
+        sphereNormalLines.push_back(start);
+        sphereNormalLines.push_back(end);
+    }
+
+    sphereNormalVertexCount = static_cast<int>(sphereNormalLines.size());
+
+    glGenVertexArrays(1, &sphereNormalVAO);
+    glBindVertexArray(sphereNormalVAO);
+
+    glGenBuffers(1, &sphereNormalVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, sphereNormalVBO);
+
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        sphereNormalLines.size() * sizeof(glm::vec3),
+        sphereNormalLines.data(),
+        GL_STATIC_DRAW
+    );
+
+    glVertexAttribPointer(
+        0,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        0,
+        reinterpret_cast<void*>(0)
+    );
+    glEnableVertexAttribArray(0);
+
     glBindVertexArray(0);
 
     // Setzt die Model-Matrix auf die Einheitsmatrix.
@@ -326,7 +447,7 @@ void initAxes()
         4,5
     };
 
-    GLuint programId = program.getHandle();
+    GLuint programId = activeProgram->getHandle();
     GLuint pos;
 
     glGenVertexArrays(1, &axes.vao);
@@ -383,7 +504,7 @@ void initAxisLine()
         0, 1
     };
 
-    GLuint programId = program.getHandle();
+    GLuint programId = activeProgram->getHandle();
     GLuint pos;
 
     glGenVertexArrays(1, &axisLine.vao);
@@ -439,8 +560,11 @@ bool initStarDestroyer()
 
     std::vector<float> data;
 
+	float targetSize = 1.0f; // Zielgröße des Modells
+	float scale = targetSize / loader.maxExtent; // Berechnung des Skalierungsfaktors
+
     for (size_t i = 0; i < loader.meshVertices.size(); ++i) {
-        glm::vec3 position = loader.meshVertices[i];
+        glm::vec3 position = (loader.meshVertices[i] - loader.center) * scale;
         glm::vec3 normal = loader.meshNormals[i];
 
 		data.push_back(position.x);
@@ -452,6 +576,7 @@ bool initStarDestroyer()
         data.push_back(normal.z);
     }
 
+    // 1. Mesh erzeugen
     glGenVertexArrays(1, &starDestroyerVAO);
     glBindVertexArray(starDestroyerVAO);
 
@@ -475,25 +600,115 @@ bool initStarDestroyer()
 
     glBindVertexArray(0);
 
+    // 2. Normalen 
+    std::vector<glm::vec3> normalLines;
+
+    float normalLength = 0.15f;
+
+    for (size_t i = 0; i < loader.meshVertices.size(); ++i) {
+        glm::vec3 start = (loader.meshVertices[i] - loader.center) * scale;
+        glm::vec3 end = start + glm::normalize(loader.meshNormals[i]) * normalLength;
+
+        normalLines.push_back(start);
+        normalLines.push_back(end);
+    }
+
+    starDestroyerNormalVertexCount = static_cast<int>(normalLines.size());
+
+    glGenVertexArrays(1, &starDestroyerNormalVAO);
+    glBindVertexArray(starDestroyerNormalVAO);
+
+    glGenBuffers(1, &starDestroyerNormalVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, starDestroyerNormalVBO);
+
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        normalLines.size() * sizeof(glm::vec3),
+        normalLines.data(),
+        GL_STATIC_DRAW
+    );
+
+    glVertexAttribPointer(
+        0,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        0,
+        reinterpret_cast<void*>(0)
+    );
+    glEnableVertexAttribArray(0);
+
+    glBindVertexArray(0);
+    
+    glm::vec3 minB = (loader.minPosition - loader.center) * scale;
+    glm::vec3 maxB = (loader.maxPosition - loader.center) * scale;
+
+    std::vector<glm::vec3> boxLines = {
+        // unten
+        {minB.x, minB.y, minB.z}, {maxB.x, minB.y, minB.z},
+        {maxB.x, minB.y, minB.z}, {maxB.x, minB.y, maxB.z},
+        {maxB.x, minB.y, maxB.z}, {minB.x, minB.y, maxB.z},
+        {minB.x, minB.y, maxB.z}, {minB.x, minB.y, minB.z},
+
+        // oben
+        {minB.x, maxB.y, minB.z}, {maxB.x, maxB.y, minB.z},
+        {maxB.x, maxB.y, minB.z}, {maxB.x, maxB.y, maxB.z},
+        {maxB.x, maxB.y, maxB.z}, {minB.x, maxB.y, maxB.z},
+        {minB.x, maxB.y, maxB.z}, {minB.x, maxB.y, minB.z},
+
+        // verbindungen
+        {minB.x, minB.y, minB.z}, {minB.x, maxB.y, minB.z},
+        {maxB.x, minB.y, minB.z}, {maxB.x, maxB.y, minB.z},
+        {maxB.x, minB.y, maxB.z}, {maxB.x, maxB.y, maxB.z},
+        {minB.x, minB.y, maxB.z}, {minB.x, maxB.y, maxB.z}
+    };
+
+    boundingBoxVertexCount = static_cast<int>(boxLines.size());
+
+    glGenVertexArrays(1, &boundingBoxVAO);
+    glBindVertexArray(boundingBoxVAO);
+
+    glGenBuffers(1, &boundingBoxVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, boundingBoxVBO);
+
+    glBufferData(
+        GL_ARRAY_BUFFER,
+        boxLines.size() * sizeof(glm::vec3),
+        boxLines.data(),
+        GL_STATIC_DRAW
+    );
+
+    glVertexAttribPointer(
+        0,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        0,
+        reinterpret_cast<void*>(0)
+    );
+    glEnableVertexAttribArray(0);
+
+    glBindVertexArray(0);
+
     return true;
 }
 
 // Erstellt die Kamerasicht mithilfe von Position, Blickrichtung und Up-Vektor
 void updateView()
 {
-	glm::vec3 eye(0.0f, 0.0f, cameraDistance);
+	cameraPosition = glm::vec3 (0.0f, 0.0f, cameraDistance);
     glm::vec3 center(0.0f, 0.0f, 0.0f);
     glm::vec3 up(0.0f, 1.0f, 0.0f);
 
-    view = glm::lookAt(eye, center, up);
+    view = glm::lookAt(cameraPosition, center, up);
 }
 
 void renderAxisLine(glm::mat4 model)
 {
     glm::mat4x4 mvp = projection * view * model;
 
-    program.use();
-    program.setUniform("mvp", mvp);
+    activeProgram->use();
+    activeProgram->setUniform("mvp", mvp);
 
     glBindVertexArray(axisLine.vao);
     glDrawElements(GL_LINES, 2, GL_UNSIGNED_SHORT, 0);
@@ -508,25 +723,34 @@ bool init()
   // OpenGL: Set "background" color and enable depth testing.
   glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
   glEnable(GL_DEPTH_TEST);
-  glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
   
   updateView();
   
   // Create a shader program and set light direction.
-  if (!program.compileShaderFromFile("shader/simple.vert", cg::GLSLShader::VERTEX)) {
-    std::cerr << program.log();
+  if (!phongProgram.compileShaderFromFile("shader/simple.vert", cg::GLSLShader::VERTEX)) {
+    std::cerr << phongProgram.log();
     return false;
   }
   
-  if (!program.compileShaderFromFile("shader/simple.frag", cg::GLSLShader::FRAGMENT)) {
-    std::cerr << program.log();
+  if (!phongProgram.compileShaderFromFile("shader/simple.frag", cg::GLSLShader::FRAGMENT)) {
+    std::cerr << phongProgram.log();
     return false;
   }
   
-  if (!program.link()) {
-    std::cerr << program.log();
+  if (!phongProgram.link()) {
+    std::cerr << phongProgram.log();
     return false;
   }
+
+  if (!gouraudProgram.compileShaderFromFile("shader/gouraud.vert", cg::GLSLShader::VERTEX)) return false;
+  if (!gouraudProgram.compileShaderFromFile("shader/gouraud.frag", cg::GLSLShader::FRAGMENT)) return false;
+  if (!gouraudProgram.link()) return false;
+
+  if (!flatProgram.compileShaderFromFile("shader/flat.vert", cg::GLSLShader::VERTEX)) return false;
+  if (!flatProgram.compileShaderFromFile("shader/flat.frag", cg::GLSLShader::FRAGMENT)) return false;
+  if (!flatProgram.link()) return false;
+
 
   // Create all objects.
   initSphere();
@@ -553,29 +777,41 @@ void render()
     // Skalierung der Sonne
     sunModel = glm::scale(sunModel, glm::vec3(0.7f));
 
-    renderSphere(sunModel);
+    //(RGB) Specular Strength, Shininess
+    renderSphere(sunModel, glm::vec3(1.0f, 0.85f, 0.15f), 0.0f, 100.0f);
 
     // Sternenzerstörer
-    glm::mat4 destroyerModel = glm::mat4(1.0f);
+   glm::mat4 destroyerOrbitModel = glm::mat4(1.0f);
 
-    destroyerModel = glm::rotate(
-        destroyerModel,
-        glm::radians(orbitAngle),
+    destroyerOrbitModel = glm::rotate(
+        destroyerOrbitModel,
+        glm::radians(orbitAngle + 180.0f),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
-    destroyerModel = glm::translate(
-        destroyerModel, 
-        glm::vec3(4.0f, 0.0f, 0.0f)
+    destroyerOrbitModel = glm::translate(
+        destroyerOrbitModel, 
+        glm::vec3(2.0f, 0.0f, 0.0f)
+    );
+
+    glm::mat4 destroyerModel = destroyerOrbitModel;
+
+    destroyerModel = glm::rotate(
+        destroyerModel,
+        glm::radians(90.0f),
+        glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
     destroyerModel = glm::scale(
         destroyerModel, 
-        glm::vec3(0.2f)
+        glm::vec3(1.0f)
     );
 
     renderStarDestroyer(destroyerModel);
 
+    if (showBoundingBox) {
+        renderBoundingBox(destroyerOrbitModel);
+    }
 
     /* Planet 1
     * 
@@ -583,9 +819,9 @@ void render()
     */
 
     // Basismodell des Planeten, enthält Position und Rotation, jedoch keine Skalierung 
-    glm::mat4 planet1BaseModel = glm::mat4(1.0f);
+    glm::mat4 planet1BaseModel = glm::mat4(0.5f);
 
-    // Roatation um die Sonne, dadurch entsteht die Umlaufbewegung des Planeten.
+    // Roatation um die Sonne
     planet1BaseModel = glm::rotate(
         planet1BaseModel,
         glm::radians(orbitAngle),
@@ -623,7 +859,7 @@ void render()
     );
 
     // Zeichnet den Planeten
-    renderSphere(planet1Model);
+    renderSphere(planet1Model, glm::vec3(0.10f, 0.20f, 0.85f), 0.2f, 16.0f);
 
     /* Mond 1
     * 
@@ -653,7 +889,7 @@ void render()
     );
 
     // Zeichne den Mond
-    renderSphere(moon1Model);
+    renderSphere(moon1Model, glm::vec3(0.35f, 0.35f, 0.35f), 0.15f, 6.0f);
 
     /* Planet 2
     * 
@@ -665,13 +901,13 @@ void render()
     planet2BaseModel = glm::rotate(
         planet2BaseModel,
         glm::radians(orbitAngle + 180.0f),
-        glm::vec3(0.0f, 1.0f, 0.0f)
+        glm::vec3(0.0f, 0.0f, 1.0f)
     );
 
     // Abstand zur Sonne
     planet2BaseModel = glm::translate(
         planet2BaseModel,
-        glm::vec3(2.0f, 0.0f, 0.0f)
+        glm::vec3(0.0f, 2.0f, 0.0f)
     );
 
     // Rotation
@@ -688,7 +924,7 @@ void render()
         glm::vec3(0.3f)
     );
 
-    renderSphere(planet2Model);
+    renderSphere(planet2Model, glm::vec3(0.55f, 0.32f, 0.18f), 0.0f, 1.0f);
 
     /* Mond 2
     *
@@ -712,11 +948,12 @@ void render()
         glm::vec3(0.12f)
     );
 
-    renderSphere(moon2Model);
+    renderSphere(moon2Model, glm::vec3(0.28f, 0.28f ,0.28f), 0.0f, 8.0f);
 
    
 
     glDisable(GL_DEPTH_TEST);
+    
 
     if (showAxes)
     {
@@ -752,6 +989,16 @@ void render()
         moon1Orbit += 2.0f * speedFactor;
         moon2Orbit += 1.5f * speedFactor;
     }
+
+    if (showNormals) {
+        renderSphereNormals(sunModel);
+        renderSphereNormals(planet1Model);
+        renderSphereNormals(moon1Model);
+        renderSphereNormals(planet2Model);
+        renderSphereNormals(moon2Model);
+
+        renderStarDestroyerNormals(destroyerModel);
+    }
 }
 
 void glutDisplay ()
@@ -786,7 +1033,7 @@ void glutKeyboard(unsigned char keycode, int x, int y)
         // Änderung des Subdivison-Levels
     case '+':
 
-        if (subdivisionDepth < 6)
+        if (subdivisionDepth < 10)
         {
             subdivisionDepth++;
 
@@ -812,7 +1059,7 @@ void glutKeyboard(unsigned char keycode, int x, int y)
         break;
 
         // Zurücksetzen der ganzen Szene
-    case 'n':
+    case 'o':
         cameraDistance = 4.0f;
 
         orbitAngle = 0.0f;
@@ -856,18 +1103,17 @@ void glutKeyboard(unsigned char keycode, int x, int y)
 
         if (cameraDistance > 1.0f)
         {
-            cameraDistance -= 0.2f;
+            cameraDistance -= 0.1f;
             updateView();
         }
 
         break;
 
-        // Kamera-Zoom durch Veränderung der Kameradistanz
     case 's':
 
         if (cameraDistance < 10.0f)
         {
-            cameraDistance += 0.2f;
+            cameraDistance += 0.1f;
             updateView();
         }
         break;
@@ -883,7 +1129,7 @@ void glutKeyboard(unsigned char keycode, int x, int y)
         break;
 
     case 'd':
-        speedFactor -= 0.1f;
+        speedFactor -= 0.01f;
 
         if (speedFactor < 0.1f)
         {
@@ -894,11 +1140,11 @@ void glutKeyboard(unsigned char keycode, int x, int y)
         break;
 
     case 'f':
-        speedFactor += 0.1f;
+        speedFactor += 0.01f;
 
-        if (speedFactor > 5.0f)
+        if (speedFactor > 1.0f)
         {
-            speedFactor = 5.0f;
+            speedFactor = 1.0f;
         }
 
         std::cout << "Speed: " << speedFactor << std::endl;
@@ -907,7 +1153,41 @@ void glutKeyboard(unsigned char keycode, int x, int y)
     case 'g':
         animationRunning = !animationRunning;
         break;
+
+    case 'w':
+        wireframeMode = !wireframeMode;
+        if (wireframeMode) {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        }
+        else {
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        }
+        break;
+
+    case 'n':
+        showNormals = !showNormals;
+        break;
+
+    case 'l':
+        usePointLight = !usePointLight;
+        break;
+
+    case '1':
+        activeProgram = &phongProgram;
+        break;
+
+    case '2':
+        activeProgram = &gouraudProgram;
+        break;
+
+    case '3':
+        activeProgram = &flatProgram;
+        break;
+	case 'b':
+		showBoundingBox = !showBoundingBox;
+		break;
     }
+   
 
   glutPostRedisplay();
 }
