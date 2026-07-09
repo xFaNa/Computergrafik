@@ -1,8 +1,19 @@
+# Visual Studio
 .vs/
 x64/
 Debug/
 Release/
+
+# Benutzerdateien
+*.user
+*.suo
+
+# CMake
+out/
+build/
+
+# Temporäre Dateien
 *.obj
-*.exe
 *.pdb
 *.ilk
+*.log
